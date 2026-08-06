@@ -1,6 +1,7 @@
 import { Page, expect } from '@playwright/test';
 import { BasePage, Scope } from '../base.page';
 import { TestIds, byTestId } from '../../config/test-ids';
+import { TIMEOUTS } from '../../config/constants';
 
 /**
  * Episode list drawer inside the video player. Each episode button carries
@@ -44,6 +45,8 @@ export class EpisodesList extends BasePage {
   async checkIsOpen() {
     await this.checkVisible(this.container, 'Episodes list drawer did not open');
     await this.checkVisible(this.grid, 'Episodes grid is not visible');
+    // Grid visible ≠ buttons' click handlers wired up yet — see TIMEOUTS.episodesListSettle.
+    await this.page.waitForTimeout(TIMEOUTS.episodesListSettle);
   }
 
   async checkHeaderContent() {
@@ -81,26 +84,21 @@ export class EpisodesList extends BasePage {
       if (await this.lockedEpisodes.count()) break;
       if (group < groupCount - 1) {
         const nextGroup = this.groupButtons.nth(group + 1);
-        // Same bottom-sheet transform issue as the episode buttons below — use a raw DOM
-        // click here too for consistency, since a real mouse click on group tabs hit the
-        // same "outside of the viewport" actionability failure during manual verification.
+        // Same off-screen reachability gap as the locked-episode click below.
         await nextGroup.dispatchEvent('click');
-        // No distinct testid/state flips when a group tab switches, so there's nothing for
-        // Playwright's auto-wait to key off before re-reading lockedEpisodes.count() below —
-        // a short explicit wait is the pragmatic guard here, same as the existing repo's use
-        // of time.sleep() where expect().to_be_visible() has nothing to attach to. This path
-        // isn't exercised by the series used in the current tests (its first group already
-        // has a locked episode), so it's a defensive best-effort, not something verified live.
+        // No testid/state flip to key an auto-wait off; explicit wait is the pragmatic guard.
+        // Not exercised by current test series (its first group already has a locked
+        // episode) — defensive best-effort, unverified live.
         await this.page.waitForTimeout(300);
       }
     }
     const target = this.lockedEpisodes.first();
     await expect(target, 'No locked episode found in the episodes list').toBeVisible();
     await target.scrollIntoViewIfNeeded();
-    // The episode drawer is a bottom sheet that keeps a transform applied even at rest,
-    // which makes Playwright compute its buttons as outside the viewport and refuse to
-    // click even with force. Verified manually that a raw DOM click works fine here, so
-    // dispatch one directly instead of simulating a real mouse click at coordinates.
+    // KNOWN GAP, root-caused: Playwright's iPhone 13 viewport doesn't match how this site
+    // sizes its video area on a real device, so this drawer computes a resting position
+    // permanently below the emulated viewport — a testing-tool limit, not a real reachability
+    // bug (confirmed on a real phone). dispatchEvent bypasses it. See docs/exploration-notes.md.
     await target.dispatchEvent('click');
   }
 
@@ -113,6 +111,7 @@ export class EpisodesList extends BasePage {
     const target = this.unlockedEpisodes.last();
     await expect(target, 'No unlocked episode found in the episodes list').toBeVisible();
     await target.scrollIntoViewIfNeeded();
+    // Same known reachability gap as openFirstLockedEpisode() — see its comment.
     await target.dispatchEvent('click');
   }
 }

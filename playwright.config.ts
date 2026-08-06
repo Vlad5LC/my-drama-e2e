@@ -1,15 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 import 'dotenv/config';
+import { BASE_URL } from './src/config/constants';
 
 /**
  * The task requires testing the MOBILE WEB version only — no desktop project
  * is defined on purpose. Both projects use real Playwright device descriptors
  * (viewport, UA, isMobile, hasTouch) rather than a resized desktop window.
  */
-const BASE_URL = process.env.BASE_URL ?? 'https://my-drama.com';
 
 export default defineConfig({
   testDir: './tests',
+  globalSetup: './src/config/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

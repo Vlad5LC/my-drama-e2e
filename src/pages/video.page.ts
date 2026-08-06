@@ -5,38 +5,61 @@ import { PaywallModal } from './components/paywall.modal';
 import { TestIds } from '../config/test-ids';
 import { URL_PATTERNS, TIMEOUTS, HANDOFF_FRAME_SELECTOR } from '../config/constants';
 
+interface LoadedState {
+  contentContainer: Locator;
+  episodeCounterBadge: Locator;
+  episodes: EpisodesList;
+  paywall: PaywallModal;
+}
+
 /**
- * The /video/{uuid} route sometimes renders its UI inside a same-origin iframe
- * (id="__cover-handoff__", used with ?from=cover) instead of the top-level
- * document — observed when navigating directly to a video URL. Which one
- * happens isn't tied to a specific entry point in a way that's safe to hardcode
- * (measured: the hero banner click currently lands in the top-level document
- * too, not the iframe, contrary to an earlier note here). waitUntilLoaded()
- * detects whichever happened for the current run and points `scope` (and the
- * child components) at the right place — nothing outside this class needs to
- * know the iframe exists at all.
+ * The /video/{uuid} route sometimes renders inside a same-origin iframe
+ * (id="__cover-handoff__", ?from=cover) instead of the top-level document — not tied to a
+ * specific entry point in a way that's safe to hardcode. waitUntilLoaded() detects which
+ * happened per run and points `scope` (and child components) at the right place.
  */
 export class VideoPage extends BasePage {
   readonly handoffFrameElement: Locator;
-  contentContainer!: Locator;
-  episodeCounterBadge!: Locator;
-  episodes!: EpisodesList;
-  paywall!: PaywallModal;
-  /** Which branch resolveScope() picked for this run — only used to word the load-check message accurately. */
+  /** Which branch resolveScope() picked — only used to word the load-check message. */
   private usedHandoffFrame = false;
+  // Optional (not `!`) so using the page before waitUntilLoaded() fails with a named error
+  // via requireState() instead of a bare "Cannot read properties of undefined".
+  private state?: LoadedState;
 
   constructor(page: Page) {
     super(page, page);
     this.handoffFrameElement = page.locator(HANDOFF_FRAME_SELECTOR);
   }
 
+  private requireState(): LoadedState {
+    if (!this.state) {
+      throw new Error(
+        'VideoPage used before waitUntilLoaded() completed — call it (or a composite like App.openPlayerFromHome()) first.',
+      );
+    }
+    return this.state;
+  }
+
+  get contentContainer(): Locator {
+    return this.requireState().contentContainer;
+  }
+
+  get episodeCounterBadge(): Locator {
+    return this.requireState().episodeCounterBadge;
+  }
+
+  get episodes(): EpisodesList {
+    return this.requireState().episodes;
+  }
+
+  get paywall(): PaywallModal {
+    return this.requireState().paywall;
+  }
+
   private async resolveScope(): Promise<Scope> {
-    // waitFor rejects on a plain timeout in the (expected, majority) case where the page
-    // rendered straight into the top-level document and the iframe never shows up at all —
-    // that's a normal outcome of this branch, not a real failure, so it's read as "no
-    // iframe" rather than re-thrown. A genuinely broken page still fails right after this,
-    // when contentContainer's own toBeVisible() check in waitUntilLoaded() has nothing to
-    // resolve against in either scope.
+    // A timeout here just means the page rendered top-level with no iframe — the expected
+    // majority case, not a failure. A genuinely broken page still fails right after, when
+    // contentContainer's own toBeVisible() has nothing to resolve against in either scope.
     this.usedHandoffFrame = await this.handoffFrameElement
       .waitFor({ state: 'attached', timeout: TIMEOUTS.frame })
       .then(() => true)
@@ -47,33 +70,30 @@ export class VideoPage extends BasePage {
   async waitUntilLoaded() {
     await this.verifyUrlContains(URL_PATTERNS.videoPage, 'Not on a video player page');
     this.scope = await this.resolveScope();
-    this.contentContainer = this.scope.getByTestId(TestIds.videoPageContent);
-    // The badge has a stable data-testid when rendered in the top-level document,
-    // but the handoff iframe (?from=cover) runs an older bundle without it —
-    // verified manually — so fall back to matching its "Ep. X/Y" text there.
-    // Both alternatives are filtered to visible: this page duplicates several nodes for
-    // desktop/mobile breakpoints, and an off-screen duplicate's innerText() reads back
-    // empty even though the locator itself resolves.
-    this.episodeCounterBadge = this.scope
+    const contentContainer = this.scope.getByTestId(TestIds.videoPageContent);
+    // The handoff iframe runs an older bundle with no testid on the badge — fall back to its
+    // "Ep. X/Y" text. Both filtered to visible: off-screen responsive duplicates exist here too.
+    const episodeCounterBadge = this.scope
       .getByTestId(TestIds.episodeSelectorButton)
       .or(this.scope.getByText(/Ep\.\s*\d+\s*\/\s*\d+/))
       .filter({ visible: true })
       .first();
-    this.episodes = new EpisodesList(this.page, this.scope);
-    this.paywall = new PaywallModal(this.page, this.scope);
+    this.state = {
+      contentContainer,
+      episodeCounterBadge,
+      episodes: new EpisodesList(this.page, this.scope),
+      paywall: new PaywallModal(this.page, this.scope),
+    };
     await expect(
-      this.contentContainer,
+      contentContainer,
       `Player content did not render inside the ${this.usedHandoffFrame ? 'handoff iframe' : 'top-level document'}`,
     ).toBeVisible();
-    // For content that's actually playing (a free episode), the episode counter badge and
-    // the rest of the player controls don't exist in the DOM at all until the video area is
-    // tapped once — verified: badge locator count is 0 before a tap, 1 after. Series that
-    // paywall instantly (nothing ever plays) show the badge without this, so only tap when
-    // it's not already there — tapping contentContainer while a paywall overlay already
-    // covers it risks clicking through to the paywall instead of revealing anything.
-    const badgeAlreadyVisible = await this.episodeCounterBadge.isVisible().catch(() => false);
+    // For playing content, player controls (incl. the badge) don't exist until the video area
+    // is tapped once. Series that paywall instantly show the badge without a tap — only tap
+    // when it's not already there, or tapping a paywall overlay could click through it instead.
+    const badgeAlreadyVisible = await episodeCounterBadge.isVisible().catch(() => false);
     if (!badgeAlreadyVisible) {
-      await this.contentContainer.click();
+      await contentContainer.click();
     }
   }
 

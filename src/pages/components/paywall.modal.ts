@@ -25,18 +25,15 @@ export class PaywallModal extends BasePage {
 
   constructor(page: Page, scope: Scope) {
     super(page, scope);
-    // modal-container is a zero-size portal wrapper (its content renders via absolutely
-    // positioned children) — Playwright's toBeVisible() treats a 0x0 box as not visible,
-    // so it's only asserted as attached; paywall-long-dark is the node with real layout.
+    // modal-container is a zero-size portal wrapper — only asserted as attached, not visible;
+    // paywall-long-dark is the node with real layout.
     this.modalContainer = this.scope.getByTestId(TestIds.modalContainer).first();
     this.paywallContainer = this.scope.getByTestId(TestIds.paywallContainer).filter({ visible: true }).first();
     this.discountTimer = this.scope.getByTestId(TestIds.paywallTimer).filter({ visible: true }).first();
     this.plansSection = this.scope.getByTestId(TestIds.paywallPlansSection).filter({ visible: true }).first();
     this.plansTitle = this.scope.getByTestId(TestIds.paywallPlansTitle).filter({ visible: true }).first();
-    // The page repeats the whole "choose your plan" block a second time further down
-    // (verified manually: a second, CSS-visible copy sits ~2700px below the first, so
-    // `.filter({ visible: true })` alone can't tell them apart) — scoping the search to
-    // descendants of the single resolved plansSection keeps only the first block's cards.
+    // The page repeats the "choose your plan" block further down (both copies pass
+    // visible:true) — scoping to plansSection's descendants keeps only the first block.
     this.planCards = this.plansSection.getByTestId(TestIds.paywallPlanCard);
     this.termsCheckbox = this.scope.getByTestId(TestIds.paywallTermsCheckbox).filter({ visible: true }).first();
     this.getFullAccessButton = this.scope.getByTestId(TestIds.premiumModalButton).filter({ visible: true }).first();
@@ -65,7 +62,11 @@ export class PaywallModal extends BasePage {
   async checkEachPlanHasPrice() {
     const count = await this.planCards.count();
     for (let i = 0; i < count; i += 1) {
-      await expect(this.planCards.nth(i), `Plan card #${i} has no visible price`).toContainText(/\d+([.,]\d+)?/);
+      // Requires a real decimal amount (e.g. "55.00"/"55,00"), not just any lone digit —
+      // a plan card showing a bare "3" (e.g. from "3 plans") would wrongly pass a plain
+      // `\d+` check. Currency symbol isn't asserted since it varies by geo/A-B test — see
+      // docs/exploration-notes.md, "Paywall modal".
+      await expect(this.planCards.nth(i), `Plan card #${i} has no visible price`).toContainText(/\d+[.,]\d{2}\b/);
     }
   }
 
@@ -73,14 +74,15 @@ export class PaywallModal extends BasePage {
     return this.plansSection.locator(byTestId(TestIds.paywallPlanCard, `[data-plan-index="${index}"]`));
   }
 
-  async getSelectedPlanIndex(): Promise<number> {
+  /** null means no plan is currently selected — distinct from a valid index, so callers must handle it explicitly. */
+  async getSelectedPlanIndex(): Promise<number | null> {
     const count = await this.planCards.count();
     for (let i = 0; i < count; i += 1) {
       if ((await this.planCards.nth(i).getAttribute('data-plan-selected')) === 'true') {
         return Number(await this.planCards.nth(i).getAttribute('data-plan-index'));
       }
     }
-    return -1;
+    return null;
   }
 
   async selectPlan(index: number) {

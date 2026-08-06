@@ -8,6 +8,7 @@ export const TestIds = {
   headerAvatarLink: 'header-avatar-link',
   seriesSectionTitle: 'series-section-title',
   seriesSectionPlayButton: 'series-section-play-button',
+  bannerTopPlayButton: 'banner-top-play-button',
 
   // Sign-in modal
   loginModalContainer: 'login-modal-container',

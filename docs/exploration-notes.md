@@ -49,21 +49,45 @@ button, header a')` filtered to `top < 80px` bounding rect.
   unusable _after a delay_. `HomePage.openFeaturedSeriesFromHero()` is
   written to only be called immediately after `open()`, and IS used, by
   `main-paywall-flow.spec.ts`.
-- Also measured: `getByTestId('banner-top-play-button').first()` (DOM order)
-  only succeeded 4/5 runs — DOM order doesn't reliably match which slide is
-  actually current. `getByRole('link', { name: /start watching/i })` (matches
-  by accessible name/role) succeeded 8/8 across two batches at the time, and
-  is used as a deliberate, measured exception to this repo's usual
-  data-testid-first rule — see the comment on `HomePage.heroPlayButton`.
-  **Caveat, found later**: standalone scripts that click immediately after a
-  bare `page.goto()` (no other wait) have since shown occasional failures
-  too — the carousel's timing tolerance is narrower than "8/8" suggested, not
-  fully solved. In the actual test suite, `HomePage.open()` waits for
-  `checkHomePageIsLoaded()` (the series grid's visibility) before
-  `openFeaturedSeriesFromHero()` ever clicks — that incidental buffer is the
-  likely reason `main-paywall-flow.spec.ts` has passed reliably across every
-  full-suite run so far, but this is a real, not fully eliminated, flakiness
-  risk worth watching if the test starts failing intermittently.
+- Also measured, early on: `getByTestId('banner-top-play-button').first()`
+  (DOM order) only succeeded 4/5 runs — DOM order doesn't reliably match
+  which slide is actually current. `getByRole('link', { name: /start
+watching/i })` (matches by accessible name/role) succeeded 8/8 across two
+  batches at the time, and was used as a measured exception to this repo's
+  usual data-testid-first rule. **This was later found to be a coincidence of
+  timing, not a real fix** — see below.
+- **Root cause, found later while adding a stabilization wait**: any locator
+  built with `.first()` — role-based or testid-based, doesn't matter —
+  always resolves to **slide 0's specific DOM element**, permanently. That
+  element only happens to be on-screen right after page load, because
+  rotation always starts at slide 0. Adding literally any wait before the
+  click (a stabilization check, a sign-in flow, anything) gives the carousel
+  time to rotate away from slide 0 — at which point `.first()` still resolves
+  successfully to slide 0's link (still mounted, still "stable", just
+  off-screen) and Playwright's actionability check correctly reports
+  "element is outside of the viewport" forever, since the element and the
+  viewport genuinely never intersect again until the rotation loops back.
+  Confirmed by measurement: a first attempt at a stabilization wait (poll a
+  fixed `.first()` locator's bounding box until motionless, then click)
+  turned a rare (~1/4) flake into a **5/5 failure** — proof the original
+  "click immediately" version worked by accident (a lucky, narrow timing
+  window), not because slide 0 was in any way special.
+- **Fix**: `HomePage.getActiveHeroSlideIndex()` re-resolves which of the 8
+  `banner-top-play-button` elements is actually on-screen (via
+  `getBoundingClientRect()` vs `window.innerWidth`) fresh on every attempt,
+  and `openFeaturedSeriesFromHero()` wraps "find the on-screen slide, click
+  it" as a single retryable unit (`expect(...).toPass()`), not two separate
+  steps — a click that fails because the carousel started rotating mid-click
+  just causes the next attempt to re-resolve the (by-then-current) on-screen
+  slide instead of retrying a stale one. Measured 15/16 clean runs after this
+  change, with zero "outside of the viewport" failures (previously
+  reproducible every run once any wait preceded the click). No CSS
+  transition/animation-finish event exists to await instead — confirmed via
+  a throwaway Playwright script under this repo's own iPhone 13 emulation:
+  the carousel's rotation is a JS-driven `transform: translateX(...)` on the
+  slides' shared parent, applied directly per animation frame — the parent's
+  `getComputedStyle().transitionDuration` reads `"0s"` and
+  `element.getAnimations()` returns empty even mid-rotation.
 - **Locale matters for text-based locators.** Without an explicit
   `locale: 'en-US'` in the browser context, the site renders in Ukrainian
   (confirmed: default context on this network showed "Увійти", "Почніть
@@ -80,6 +104,53 @@ button, header a')` filtered to `top < 80px` bounding rect.
   `element.closest('section').querySelector('[data-testid="series-section-title"]')`
   → `"VIP Series"`). Clicking it opens `/video/{uuid}?from=home` where episode
   1 is _already_ paywalled — no free preview at all.
+- **Regular (non-VIP) grid cards are `<button>` elements with no `href`**
+  (client-side routing) — unlike VIP cards, which are real `<a href>`
+  elements. A dynamic-discovery approach therefore has to click first and
+  read `page.url()` after, not extract a URL statically beforehand. Verified
+  by inspecting `outerHTML` for cards in both the "VIP Series" and a regular
+  section side by side.
+- **"Continue Watching" is a trap for "pick the first non-VIP section".** It's
+  a personalized, per-account history section — never present for a
+  signed-out user, but it can appear once an account has watch history, which
+  is now possible since `app.fixture.ts` reuses one account across a
+  worker's tests. Its cards aren't verified to behave like catalog cards
+  (untested content, unknown lock state), so `HomePage.regularSeriesPlayButton`
+  explicitly excludes it in addition to "VIP Series" (`.filter({hasNot: ...})`
+  twice). Found live: a test tab with prior sign-in history had this section
+  render first, ahead of real catalog sections like "New Releases".
+- **"Top Picks In Ukraine" has no play buttons at all** — a different,
+  numbered-ranking-list structure with no `series-section-play-button`
+  elements. Harmless for `regularSeriesPlayButton`: `getByTestId()` across
+  the multi-section locator just finds zero matches there and picks up the
+  next eligible section's buttons instead — no special-case exclusion needed.
+- **Clicking a regular grid card causes two real navigations, not one**: first
+  to the bare `/video/{uuid}`, then a client redirect to `/video/{uuid}?from=home`.
+  Waiting on a URL pattern that matches both (like `URL_PATTERNS.videoPage`
+  alone) can resolve on the first, still-transient one — a caller that
+  immediately does its own `page.goto()` right after races the second
+  navigation and gets killed by Playwright ("interrupted by another
+  navigation"). Confirmed by reproducing the race, then fixing
+  `HomePage.openRegularSeriesFromGrid()` to wait specifically for the
+  `?from=home` param (the actually-stable end state) before returning.
+- **A direct `page.goto()` to a dynamically-discovered UUID (bare path, no
+  query string) still triggers the iframe render path** (`hasIframe: true`),
+  same as a hardcoded one — confirmed with a real discovered series
+  ("Pregnant with Billionaire's Secret",
+  `4448f01b-5ffe-4964-a644-96f53168c8ac` at time of writing, itself confirmed
+  to have both free and locked episodes). So re-navigating to a
+  runtime-discovered UUID preserves the same iframe-path coverage the old
+  hardcoded UUID gave — see `App.openPlayerFromHome()`.
+- **Checked whether a home-page card carries a more robust "instant paywall"
+  signal than the section title** (e.g. a lock icon or a `data-is-locked`-style
+  attribute, mirroring the episode buttons). It doesn't: a VIP card's `<a>`
+  only has `data-testid`/`class`/`href` — no lock/premium attribute. Searched
+  every `data-testid` on the page for `lock|premium|exclusive|vip|badge` —
+  found only `main-page-premium-banner-*` (an unrelated promo banner). The
+  "EXCLUSIVE" ribbon shown on many cards is plain visual text, not tied to a
+  testid, and appears on cards outside "VIP Series" too, so it isn't a usable
+  signal either. The section title is the most reliable thing available —
+  `HomePage.vipSeriesPlayButton` scopes to it rather than DOM-order `.first()`.
 
 ## Video player page (`/video/{uuid}`)
 
@@ -95,8 +166,10 @@ An earlier version of this note claimed the hero carousel also went through
 the iframe — wrong, corrected after re-measuring (4/4 clean runs showed no
 iframe). Only a **direct** `page.goto()` to a video URL hits the iframe path;
 clicking through from the home page, by either route, does not. This
-repo's iframe branch is exercised by `paywall-and-episode-boundary.spec.ts`
-(via `App.openPlayerFromHome()`'s direct `page.goto`), not by
+repo's iframe branch is exercised by the two tests that call
+`App.openPlayerFromHome()` (its direct `page.goto`) —
+`episode-boundary-and-paywall-content.spec.ts` and
+`free-episode-plays-without-paywall.spec.ts` — not by
 `main-paywall-flow.spec.ts` (hero click) as an earlier note assumed.
 
 The `?from=cover` iframe is **not** a transient loading state — it was still
@@ -157,14 +230,51 @@ lock icon or counting tiles.
 
 Clicking a locked episode button opens the paywall **immediately** — verified
 via a direct `element.click()` call in the browser console, no need to watch
-the episode to the end.
+the episode to the end. **This console verification is itself a synthetic
+click, same as `dispatchEvent('click')` below — see the gap this leaves,
+next.**
 
-Known quirk: the drawer is a bottom sheet that keeps a CSS transform applied
-even at rest. Playwright's real mouse click computes the button as "outside
-the viewport" and refuses even with `{ force: true }`. A raw DOM click
-(`element.click()` — what `locator.dispatchEvent('click')` does under the
-hood) works fine, matching the manual verification above, so
-`EpisodesList.openFirstLockedEpisode()` uses `dispatchEvent('click')`.
+**KNOWN GAP, now root-caused — `dispatchEvent('click')` isn't hiding a bad
+test, it's compensating for a Playwright mobile-emulation limitation.**
+Re-investigated properly (not taken at face value) across several rounds:
+
+- `lockedEpisodeButton.boundingBox()` reports `{ x: 163, y: 1089, width: 64,
+height: 60 }` in a `390×664` viewport — genuinely below the fold, not a
+  Playwright false positive.
+- `scrollIntoViewIfNeeded()` doesn't help — no ancestor (`episodes-list-grid`
+  → `-container` → `-overlay` → `body` → `html`) has `scrollHeight >
+clientHeight`; nothing is actually scrollable. It even moves the button
+  **further** off-screen (1089 → 1121).
+- A real `page.mouse.click()` at that exact coordinate does nothing.
+- Tried 4 different real drag/swipe simulations to expand the sheet — mouse
+  drag on the handle, CDP `Input.dispatchTouchEvent` on the handle, on the
+  header, and a horizontal swipe on the grid itself (per a live suggestion
+  that swiping sideways or tapping group tabs reveals more episodes on a
+  real device) — across both Chromium and WebKit, headless and headed. None
+  moved `episodes-list-container`'s `transform: translateY(541px)` by a
+  single pixel. One swipe even landed on the video player's own subtitle
+  button underneath — proof there's nothing to touch there at all, not just
+  an unresponsive touch target.
+- **Real-device check settled it**: on an actual phone (Safari and Chrome),
+  tapping the episode counter opens the drawer already mostly expanded,
+  filling most of the screen below a short video preview strip — nothing
+  like the Playwright screenshot, where the video fills the entire 664px
+  viewport and the drawer never becomes visible at all.
+
+**Conclusion**: this isn't a missed gesture or a flaky test — Playwright's
+`devices['iPhone 13']` viewport (`390×664`, sized to leave room for Safari's
+address bar) doesn't match how the site actually sizes its video area on a
+real device, so the drawer computes a resting position that's permanently
+below the emulated viewport. Likely a `100vh`-style mobile viewport-height
+calculation that behaves differently under real dynamic browser chrome vs.
+Playwright's static emulation — a testing-tool fidelity limit, not a bug in
+this repo's test code. `dispatchEvent('click')` remains the correct choice:
+`EpisodesList.openFirstLockedEpisode()` (and its group-tab fallback, and
+`openLastUnlockedEpisode()`) call the click handler directly, bypassing
+this gap rather than fighting it. It still means these tests can't tell you
+whether a real user could reach the button through the UI (they don't need
+to — a real user's browser sizes the page correctly) — see README's Known
+Limitations.
 
 ### Paywall modal
 

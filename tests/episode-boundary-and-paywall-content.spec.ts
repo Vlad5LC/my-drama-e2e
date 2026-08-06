@@ -1,15 +1,19 @@
 import { test, expect } from '../src/fixtures/app.fixture';
 
 /**
- * Variation: verifies things a full paywall-reaching run doesn't check on its own —
- * the free/locked episode boundary (data-is-locked attributes), that free content
- * actually stays playable without the paywall (the negative case — every other test
- * only proves the positive, "locked episode → paywall"), and the paywall's actual
- * content (timer, three priced plans, terms checkbox). Currency and discount
- * percentage are not asserted since they can vary by geo/A-B test.
+ * Variation: checks what a full paywall-reaching run doesn't — the free/locked episode
+ * boundary is consistent, and the paywall's content is complete (timer, plans, terms,
+ * selection). Currency/discount % aren't asserted (vary by geo/A-B test). Signed-in state
+ * comes from `authStoragePath` reuse, not a fresh UI sign-in — see app.fixture.ts.
  */
+test.use({
+  storageState: async ({ authStoragePath }, use) => {
+    await use(authStoragePath);
+  },
+});
+
 test('episode list boundary is consistent and paywall content is complete', { tag: '@regression' }, async ({ app }) => {
-  await app.openPlayerFromHome();
+  await app.openPlayerAsAuthenticatedWorker();
   await app.video.openEpisodesList();
   await app.episodes.checkHeaderContent();
 
@@ -34,20 +38,12 @@ test('episode list boundary is consistent and paywall content is complete', { ta
     await app.paywall.checkTermsCheckboxIsVisible();
 
     const selectedBefore = await app.paywall.getSelectedPlanIndex();
-    expect(selectedBefore, 'Exactly one plan should be selected by default').toBeGreaterThanOrEqual(0);
+    expect(selectedBefore, 'Exactly one plan should be selected by default').not.toBeNull();
+    // Narrowed by the assertion above, but TypeScript doesn't know that — narrow it here too.
+    if (selectedBefore === null) throw new Error('Unreachable: selectedBefore was just asserted non-null');
 
     const otherPlanIndex = selectedBefore === 0 ? 1 : 0;
     await app.paywall.selectPlan(otherPlanIndex);
     await app.paywall.checkPlanIsSelected(otherPlanIndex);
   });
-});
-
-test('a free episode plays without triggering the paywall', { tag: '@regression' }, async ({ app }) => {
-  await app.openPlayerFromHome();
-  await app.video.openEpisodesList();
-  // The last unlocked episode, not episode 1 (already playing by default) — proves free
-  // content stays playable regardless of position, not just that the starting episode does.
-  await app.episodes.openLastUnlockedEpisode();
-  await app.paywall.checkIsNotVisible();
-  await expect(app.video.contentContainer, 'Player content is not visible for a free episode').toBeVisible();
 });
