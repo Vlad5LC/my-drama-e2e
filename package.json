@@ -1,0 +1,33 @@
+{
+  "name": "my-drama-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright e2e tests for my-drama.com mobile web — main user flow up to the paywall",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:iphone": "playwright test --project=mobile-safari-iphone13",
+    "test:pixel": "playwright test --project=mobile-chrome-pixel5",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:regression": "playwright test --grep @regression",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "dotenv": "^17.4.2",
+    "eslint": "^8.57.0",
+    "eslint-plugin-playwright": "^1.8.3",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  }
+}
