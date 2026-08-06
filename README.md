@@ -133,6 +133,14 @@ this was confirmed.
   reachable before any test runs**, so a wrong/unreachable URL fails once
   with one clear message instead of every test independently timing out on
   its first navigation.
+- **`VideoPage.resolveScope()` races the iframe attaching against the
+  top-level content becoming visible**, instead of always waiting the full
+  frame timeout before falling through — the majority of entry points never
+  get an iframe at all, so that wasted ~15s per test before this fix.
+- **`PaywallModal.checkIsNotVisible()` waits a beat before asserting hidden**,
+  not just checked at the instant it's called — a paywall appearing with a
+  short delay is a real bug this test exists to catch, and an instant
+  `toBeHidden()` alone could pass before a delayed-but-real paywall showed up.
 - **This site renders some nodes twice** (responsive breakpoint variants, and
   a duplicated paywall plans block further down the page). Every affected
   locator is filtered to `visible: true` or scoped under an already-resolved
@@ -174,6 +182,14 @@ Claude Code was used for:
    explored the live site cold and confirmed the anonymous-paywall and
    hero-carousel findings above; reconciling one thing they found that
    contradicted the checked-in code is what led to the hero-carousel fix.
+6. **A second review pass, on a different model (Fable 5)** — fresh eyes on
+   the finished repo, no prior session context, asked to judge it the way a
+   hiring reviewer would. It found three real, concrete issues, all since
+   fixed: `PaywallModal.checkIsNotVisible()` could pass before a
+   delayed-but-real paywall appeared, `VideoPage.resolveScope()` always
+   waited the full iframe timeout before falling through on entry points
+   that never have one (~15s wasted per test), and a stale comment in
+   `test-ids.ts` that contradicted the actual, measured iframe behavior.
 
 Nothing here was invented without a corresponding line of evidence in
 `exploration-notes.md` or a passing run against the live site.

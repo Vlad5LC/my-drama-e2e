@@ -45,8 +45,14 @@ export class PaywallModal extends BasePage {
     await this.checkVisible(this.plansSection, 'Paywall plans section is not visible');
   }
 
-  /** Negative check for free episodes — confirms a paywall wasn't shown when it shouldn't be. */
+  /**
+   * Negative check for free episodes — confirms a paywall wasn't shown when it shouldn't be.
+   * toBeHidden() alone passes the instant it's checked — a paywall that appears with a short
+   * delay (a real bug) might just not be visible *yet*, letting this pass a broken page. Give
+   * it a beat to show up before asserting it never did.
+   */
   async checkIsNotVisible() {
+    await this.page.waitForTimeout(2_000);
     await this.checkHidden(this.paywallContainer, 'Paywall is visible for content that should be free');
   }
 

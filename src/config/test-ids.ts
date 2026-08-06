@@ -15,9 +15,9 @@ export const TestIds = {
   loginModalEmailInput: 'login-modal-email-input',
   loginModalSubmitButton: 'login-modal-submit-button',
 
-  // Video player page (rendered in the top-level document, EXCEPT when
-  // navigated to from the home page's rotating hero carousel — see
-  // VideoPage.resolveScope() for why the handoff iframe needs special handling)
+  // Video player page — renders inside a same-origin handoff iframe only when reached via a
+  // direct page.goto() (never when clicking through from the home page, by any route) — see
+  // VideoPage.resolveScope().
   videoPageContent: 'video-page-content-container',
   episodeSelectorButton: 'video-player-episode-selector-button',
   burgerMenu: 'burger-menu-container',

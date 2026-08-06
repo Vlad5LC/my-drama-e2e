@@ -57,13 +57,25 @@ export class VideoPage extends BasePage {
   }
 
   private async resolveScope(): Promise<Scope> {
-    // A timeout here just means the page rendered top-level with no iframe — the expected
-    // majority case, not a failure. A genuinely broken page still fails right after, when
-    // contentContainer's own toBeVisible() has nothing to resolve against in either scope.
-    this.usedHandoffFrame = await this.handoffFrameElement
-      .waitFor({ state: 'attached', timeout: TIMEOUTS.frame })
-      .then(() => true)
-      .catch(() => false);
+    // Races the iframe attaching against the top-level content becoming visible, instead of
+    // always waiting the full TIMEOUTS.frame before falling through — the majority of entry
+    // points (hero click, grid click) never get an iframe at all, so that wasted ~15s on
+    // every one of those tests. Promise.any resolves on the first successful branch and
+    // ignores the other (still-pending) one; it only rejects if BOTH miss their timeout,
+    // which means a genuinely broken page — contentContainer's own toBeVisible() right after
+    // this has nothing to resolve against in either scope, and fails with a clear message.
+    try {
+      this.usedHandoffFrame = await Promise.any([
+        this.handoffFrameElement.waitFor({ state: 'attached', timeout: TIMEOUTS.frame }).then(() => true),
+        this.page
+          .getByTestId(TestIds.videoPageContent)
+          .first()
+          .waitFor({ state: 'visible', timeout: TIMEOUTS.frame })
+          .then(() => false),
+      ]);
+    } catch {
+      this.usedHandoffFrame = false;
+    }
     return this.usedHandoffFrame ? this.page.frameLocator(HANDOFF_FRAME_SELECTOR) : this.page;
   }
 
