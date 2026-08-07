@@ -11,7 +11,6 @@ export const TestIds = {
   bannerTopPlayButton: 'banner-top-play-button',
 
   // Sign-in modal
-  loginModalContainer: 'login-modal-container',
   loginModalEmailInput: 'login-modal-email-input',
   loginModalSubmitButton: 'login-modal-submit-button',
 
@@ -20,16 +19,13 @@ export const TestIds = {
   // VideoPage.resolveScope().
   videoPageContent: 'video-page-content-container',
   episodeSelectorButton: 'video-player-episode-selector-button',
-  burgerMenu: 'burger-menu-container',
 
   // Episodes list drawer
-  episodesOverlay: 'episodes-list-overlay',
   episodesContainer: 'episodes-list-container',
   episodesHeader: 'episodes-list-header',
   episodesCoverImage: 'episodes-list-cover-image',
   episodesTitleMobile: 'episodes-list-title-mobile',
   episodesDescription: 'episodes-list-description',
-  episodesActionButtons: 'episodes-list-action-buttons',
   episodesLikeButton: 'episodes-list-like-button',
   episodesGenreTags: 'episodes-list-genre-tags',
   episodesGroupNavigation: 'episodes-group-navigation',
@@ -39,14 +35,11 @@ export const TestIds = {
 
   // Paywall modal
   modalContainer: 'modal-container',
-  modalOverlay: 'modal-overlay',
   paywallContainer: 'paywall-long-dark',
   paywallTimer: 'new-paywall-timer',
   premiumModalButton: 'premium-modal-button',
   paywallPlansSection: 'paywall-plans-section',
   paywallPlansTitle: 'paywall-plans-section-title',
-  paywallPlansSubtitle: 'paywall-plans-section-subtitle',
-  paywallPlansList: 'paywall-plans-list',
   paywallPlanCard: 'paywall-plan-card',
   paywallTermsCheckbox: 'paywall-terms-checkbox',
 } as const;
