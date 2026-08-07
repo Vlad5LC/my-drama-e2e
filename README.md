@@ -223,36 +223,10 @@ nothing was accepted on trust.
 ## CI
 
 `.github/workflows/playwright.yml` runs `tsc --noEmit` + `eslint` on every
-push. It does **not** run the Playwright suite itself — see "Why CI doesn't
-run the live tests" below. Run tests locally with `npm test`.
-
-### Why CI doesn't run the live tests
-
-GitHub Actions runners hit `my-drama.com` from Azure US datacenter IPs.
-From that IP class, the site shows a US-specific CCPA "Opt-out Preferences"
-consent flow (CookieYes-powered) that this suite doesn't handle, which then
-cascades into an unexpected "Sign in" dialog blocking every test — not a
-code defect: the exact same suite passes locally, every time, from a normal
-residential IP.
-
-Confirmed two ways:
-
-1. Downloaded the actual CI failure artifacts (screenshots + accessibility
-   snapshots) — every failing test shows a "Sign in" dialog open at the
-   point of failure, including `main-paywall-flow` (fully anonymous, never
-   calls sign-in) and `episode-boundary-and-paywall-content` (already
-   authenticated via `storageState`). The underlying page renders
-   completely normally otherwise — real content, real testids, not a bot-
-   block or blank page.
-2. Reproduced live: connecting through a VPN with a US exit node shows the
-   CookieYes "Opt-out Preferences" banner immediately, and the same
-   locked-episode flow shows this consent form instead of the paywall.
-   From a normal IP, the same flow goes straight to the paywall as
-   documented throughout this README.
-
-Handling that consent flow (detecting and dismissing it when present) is a
-real, scoped fix — left for a follow-up rather than guessed at without
-verified DOM details from that specific state.
+push. It does not run the Playwright suite itself — GitHub Actions runners
+hit the live site from an IP class that triggers region-specific behavior
+this suite doesn't yet handle, unrelated to any code defect (the same suite
+passes locally every time). Run tests locally with `npm test`.
 
 ## Known limitations
 
